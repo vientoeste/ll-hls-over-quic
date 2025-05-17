@@ -10,9 +10,50 @@ VOD 서비스 시장은 지속적으로 성장하여 사용자 경험을 개선�
 
 # 2. 관련 연구
 
+각 진영의 장점과 이를 통합 장점
+
+ - 비디오 스트리밍 기술의 발전
+   - 전통 스트리밍 방식 및 한계
+     - progressive download
+     - rtsp - 특징, 장점(실시간성), 통합성 문제(vs 웹), HTTP 기반 스트리밍으로 넘어가게 된 배경
+   - Adaptive HTTP Streaming
+     - 웹 인프라 활용, 방화벽 문제 해결 등
+     - HLS, MPEG-DASH, ABR 등
+ - 저지연 스트리밍 기술 동향
+   - LL-HLS
+   - LL-DASH -> LL-HLS와의 유사점, 차이점(표준화, 구현 복잡도 등)
+ - QUIC, HTTP/3
+ - 기존 전송 프로토콜(TCP) 및 HTTP 버전의 한계
+    - TCP
+      - 3-Way Handshake로 인한 연결 지연
+      - HOL (Head-Of-Line) Blocking (TCP 레벨)
+      - 느린 혼잡 제어 매커니즘
+      - IP 주소 변경 시 연결 끊김 문제
+      - HTTP/1.1: 다중 요청 처리의 비효율성 (HOL Blocking, 다중 TCP 연결)
+      - HTTP/2:
+      - 멀티플렉싱을 통한 HOL Blocking 완화 (스트림 레벨)
+      - 하지만 TCP 레벨의 HOL Blocking은 여전히 존재
+      - 헤더 압축 (HPACK)
+    - QUIC (Quick UDP Internet Connections)
+      - 등장 배경: TCP와 HTTP/2의 한계를 극복하기 위한 노력
+      - 주요 특징 및 장점:
+      - UDP 기반 전송: TCP의 제약 탈피
+      - 0-RTT 또는 1-RTT 연결 설정: 빠른 연결 수립
+      - 독립적인 스트림 멀티플렉싱: 패킷 손실 시 특정 스트림만 영향, HOL Blocking 해결
+      - 연결 마이그레이션 (Connection Migration): IP 주소 변경에도 연결 유지 (모바일 환경에 유리)
+      - 보안 강화: TLS 1.3 기본 내장 및 암호화
+      - 향상된 혼잡 제어 및 복구 메커니즘
+      - VOD 서비스에 QUIC 적용 시 기대 효과: Startup Latency 감소, 네트워크 변화에 대한 강인성, 전반적인 사용자 경험 향상
+    - HTTP/3
+      - QUIC을 전송 계층으로 사용하는 HTTP
+      - HTTP/2 대비 개선점: QUIC의 장점을 그대로 계승
+      - VOD 스트리밍에서의 잠재력
+
 # 3. LL-HLS over QUIC(HTTP/3) 개발
 
 # 4. 비교
+
+기능, 성능, 인터페이스
 
 # 5. 결론
 본 논문은 VOD 서비스의 사용자 경험 향상을 위해 기존 HTTP 기반 스트리밍 기술의 전송 계층 측면의 한계를 극복하고자 차세대 전송 프로토콜인 QUIC(over HTTP/3)을 저지연 스트리밍 기술인 LL-HLS와 결합한 서버 시스템을 구현했다. 이는 아직 프로덕션 환경에서 널리 활용되지 않는 HTTP/3 전송 프로토콜 위에서 복잡성을 가지는 LL-HLS의 동작을 구현 및 연동함으로써 기술적 타당성을 보여준다는 의미가 있다. 구현 과정에서 LL-HLS 관련 오픈소스의 부재 등의 기술적 도전 과제에 직면했으며 이를 해결하여 Smart Origin Server 구성에 대한 실질적인 이해를 얻을 수 있었다. 해당 과정에서 얻은 기술적 경험과 시사점이 향후 실제 서비스에 HTTP/3 전송 프로토콜을 적용할 때 기반 정보를 제공할 수 있음을 기대한다.
