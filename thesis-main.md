@@ -3,9 +3,11 @@
 # 0. 요약
 VOD 서비스 시장은 지속적으로 성장하여 사용자 경험을 개선할 필요가 요구되어 왔다. 기존의 HTTP 기반 스트리밍 방식은 세그먼트 단위 분할 및 전송으로 인한 본질적 지연과 하위 계층 전송 프로토콜인 TCP의 기술적인 한계로 빠른 시청 시작, 네트워크 변화에 대한 취약성 등의 문제를 겪고 있다. 본 논문은 이러한 사용자 경험을 개선하기 위한 방안으로 저지연 스트리밍 기술인 LL-HLS와 차세대 전송 프로토콜인 QUIC(HTTP/3)을 VOD 서비스에 결합하는 새로운 접근 방식을 제안하고 구현하였다. 이를 통해 아직 적용 사례가 많지 않은 QUIC 위의 LL-HLS(LL-HLS over QUIC) 시스템에 대한 기술적 타당성과 이에 대한 실제 구현 가능성을 입증한다.
 
-# 1. 서론
-현대 사회에서 VOD(Video On Demand) 서비스는 주요 디지털 컨텐츠 소비 형태로 자리 잡으며 폭발적으로 성장하고 있다. 특히 사용자들의 요구 수준 상승에 따라 끊김 없는 영상 시청 경험, 즉각적 탐색, 빠른 재생 시작 등과 같은 사용자 경험의 개선이 서비스 경쟁력 확보에 필수적인 과제로 대두되었다. 이에 따라 영상 전송 기술은 Progressive Download 등의 방식에서 영상을 청크 단위로 나눠 전송하는 RTSP 등이 등장하고, 강력한 기존 인프라인 웹을 활용한 HTTP 기반 Adaptive Streaming(HLS, DASH 등)으로 발전했다. 하지만 주로 사용되는 HTTP 기반 스트리밍 기술들은 영상을 세그먼트 단위로 처리하여 전송하기 때문에 Startup Latency 등 본질적인 지연이 발생하게 된다. 스트리밍 서비스의 기반이 되는 기존 전송 프로토콜인 TCP와 위에서 동작하는 HTTP/1.1, HTTP/2는 3-Way Handshake와 같은 연결 설정 과정에서의 시간 소요, HOL Blocking(Head-Of-Line Blocking) 문제, 연결 환경 변화 시 필요로 하는 재연결 등 기술적 한계가 내포되어 있으며 이는 VOD 서비스의 스트리밍 성능과 안정성 저하의 원인이 될 수 있다.
-이러한 배경에서 스트리밍 서비스의 지연 문제를 효과적으로 해결하기 위해 Low-Latency HLS(LL-HLS), Low-Latency DASH(LL-DASH) 등 저지연 스트리밍 기술 표준이 등장했다. 동시에 전송 계층에서는 HTTP/2의 HOL Blocking 문제를 근본적으로 해결하고 연결 설정을 최적화하기 위해 UDP 기반 전송 프로토콜인 QUIC 및 이를 기반으로 하는 HTTP/3가 IETF를 통해 표준화되었다. QUIC은 0~1 RTT(Round Trip Time)의 빠른 연결 설정, 독립 스트림 데이터 전송, Connection Migration 등 VOD 서비스의 클라이언트 경험을 크게 개선할 수 있는 기능이 존재한다. 그러나 오픈소스를 통해 LL-HLS가 제공하는 저지연 스트리밍의 이점과 QUIC(HTTP/3)이 제공하는 전송 효율성 및 연결 안정성을 VOD 서비스에 통합적으로 적용하려는 시도는 아직 초기 단계에 머무르고 있으며, 실제 구현 및 검증 사례는 부족한 실정이다.
+# 서론
+현대 사회에서 VOD(Video On Demand) 서비스는 주요 디지털 컨텐츠 소비 형태로 자리 잡으며 폭발적으로 성장하고 있다. 특히 사용자들의 요구 수준 상승에 따라 끊김 없는 영상 시청 경험, 즉각적 탐색, 빠른 재생 시작 등과 같은 사용자 경험의 개선이 서비스 경쟁력 확보에 필수적인 과제로 대두되었다. 이에 따라 영상 전송 기술은 Progressive Download 등의 방식에서 영상을 청크 단위로 나눠 전송하는 RTSP 등이 등장하고, 강력한 기존 인프라인 웹을 활용한 HTTP 기반 Adaptive Streaming(HLS, DASH 등)으로 발전했다. 하지만 주로 사용되는 HTTP 기반 스트리밍 기술들은 영상을 세그먼트 단위로 처리하여 전송하기 때문에 Startup Latency 등 본질적인 지연이 발생하게 된다. 스트리밍 서비스의 기반이 되는 기존 전송 프로토콜인 TCP와 위에서 동작하는 HTTP/1.1, HTTP/2는 3-Way Handshake와 같은 연결 설정 과정에서의 시간 소요, HOL Blocking(Head-Of-Line Blocking) 문제, 연결 환경 변화 시 필요로 하는 재연결 등 기술적 한계가 내포되어 있으며[^1] [^2] 이는 VOD 서비스의 스트리밍 성능과 안정성 저하의 원인이 될 수 있다.
+
+이러한 문제를 해결하기 위해 응용 계층에서는 LL-HLS(Low-Latency HLS) 및 LL-DASH(Low-Latency DASH) 와 같은 저지연 스트리밍 기술이, 전송 계층에서는 TCP의 HOL Blocking을 근본적으로 해결하고 연결 설정을 최적화한 프로토콜 QUIC(Quick UDP Internet Connections)이 등장했다. 이 외에도 QUIC은 0~1 RTT(Round Trip Time)의 빠른 연결 설정, 그리고 Connection Migration 기능[^3] 등을 통해 VOD 서비스의 사용자 경험을 크게 개선할 잠재력을 지니고 있다. 그러나 오픈소스 기반의 LL-HLS가 제공하는 저지연 스트리밍의 이점과 QUIC(HTTP/3)이 제공하는 전송 효율성 및 연결 안정성 등을 VOD 서비스에 통합적으로 적용하려는 시도는 아직 초기 단계에 머무르고 있다. 특히 HTTP/3 기반의 오픈소스 LL-HLS 지원 서버 사례는 실험적으로 이를 지원하는 OvenMediaEngine을 제외하면 실제 구현 및 검증이 미흡한 실정이므로 해당 기술 조합의 실효성에 대한 심층적인 연구가 필요하다.
+
 따라서 본 논문은 VOD 서비스 환경에 최적화된 QUIC 기반 HTTP/3 서버에서 LL-HLS 프로토콜을 사용해 컨텐츠를 효율적으로 전송하기 위한 서버를 직접 설계하고 구현한다. 이를 통해 VOD 서비스의 Startup Latency 감소를 통한 재생 시작 시간 단축, 컨텐츠 서빙의 네트워크 변화에 대한 내성 등을 개선하고 향후 차세대 고성능 VOD 스트리밍 시스템 구축에 기여할 것을 기대한다.
 
 # 2. 이론적 배경 및 관련 연구
@@ -44,7 +46,7 @@ HTTP/3는 QUIC 위에서 동작하도록 설계된 버전으로 RFC 9114로 표�
 # 5. 결론
 본 논문은 VOD 서비스의 사용자 경험 향상을 위해 기존 HTTP 기반 스트리밍 기술의 전송 계층 측면의 한계를 극복하고자 차세대 전송 프로토콜인 QUIC(over HTTP/3)을 저지연 스트리밍 기술인 LL-HLS와 결합한 서버 시스템을 구현했다. 이는 아직 프로덕션 환경에서 널리 활용되지 않는 HTTP/3 전송 프로토콜 위에서 복잡성을 가지는 LL-HLS의 동작을 구현 및 연동함으로써 기술적 타당성을 보여준다는 의미가 있다. 구현 과정에서 LL-HLS 관련 오픈소스의 부재 등의 기술적 도전 과제에 직면했으며 이를 해결하여 Smart Origin Server 구성에 대한 실질적인 이해를 얻을 수 있었다. 해당 과정에서 얻은 기술적 경험과 시사점이 향후 실제 서비스에 HTTP/3 전송 프로토콜을 적용할 때 기반 정보를 제공할 수 있음을 기대한다.
 
-# 참고문헌
-## 1
-- Schulzrinne, H., Rao, A., and Lanphier, R. "Real Time Streaming Protocol"
-- https://www.cs.columbia.edu/~hgs/rtsp/draft/draft-ietf-mmusic-rtsp-03.html
+---
+[^1]: Scalable Multi-Source Video Streaming Application over Peer-to-Peer Networks
+[^2]: 저지연 라이브 HTTP 스트리밍을 위한 전송률 적응 기법
+[^3]: Performance Comparison of HTTP/3 and HTTP/2: Proxy vs. Non-Proxy Environments
