@@ -55,24 +55,206 @@ HTTP/1.1은 오랜 기간 동안 웹 통신의 기반이 되었지만 몇 가지
 
 HTTP/3는 QUIC 위에서 동작하도록 설계된 버전으로 RFC 9114로 표준화되었다. IETF는 인터넷 전송 프로토콜을 TCP에서 QUIC으로 변경하는 새로운 HTTP/3 초안을 2019년 1월에 발표한 바 있다. HTTP/3는 HTTP/2의 주요 의미론적 기능과 스트림 단위 흐름 제어 등을 계승하면서, 전송 계층으로 QUIC을 사용함으로써 TCP 기반 HTTP/2가 가졌던 한계점들을 극복하고자 한다. 이는 스트림 간 독립성을 보장하여 HOL 블로킹을 해결하고, 효율적인 혼잡 제어 및 빠른 연결 설정을 통해 TCP 기반 HTTP 대비 향상된 성능을 제공한다. 이처럼 HTTP/3(QUIC)는 TCP 기반 전송 프로토콜의 한계를 극복하고 저지연 스트리밍 환경 구축에 도움이 될 빠른 연결 수립, HOL 블로킹 없는 다중화 등의 기능을 제공한다. 이러한 특성들은 저지연을 목표로 하는 LL-HLS와 결합될 때 VOD 서비스의 초기 로딩 시간 단축, 재생 중 끊김 감소, 네트워크 환경 변화에 대한 대응력 향상 등 사용자 경험을 전반적으로 향상시킬 것으로 기대된다.
 
-# 3. LL-HLS over QUIC(HTTP/3) 개발
+# LL-HLS over QUIC(HTTP/3) 개발
 
-# 4. 비교
+본 장에서는 서버의 구현 및 이에 대한 신뢰성, 재현성, 타당성 및 명세 만족성을 확보하기 위해 RFC 8216에서 요구하는 HLS의 기본 요구사항부터 LL-HLS 확장 명세의 핵심 기능까지 각 기능이 어떤 태그와 속성을 통해 구현되었는지 등에 대해 기술한다.
 
-# 5. 결론
-본 논문은 VOD 서비스의 사용자 경험 향상을 위해 기존 HTTP 기반 스트리밍 기술의 전송 계층 측면의 한계를 극복하고자 차세대 전송 프로토콜인 QUIC(over HTTP/3)을 저지연 스트리밍 기술인 LL-HLS와 결합한 서버 시스템을 구현했다. 이는 아직 프로덕션 환경에서 널리 활용되지 않는 HTTP/3 전송 프로토콜 위에서 복잡성을 가지는 LL-HLS의 동작을 구현 및 연동함으로써 기술적 타당성을 보여준다는 의미가 있다. 구현 과정에서 LL-HLS 관련 오픈소스의 부재 등의 기술적 도전 과제에 직면했으며 이를 해결하여 Smart Origin Server 구성에 대한 실질적인 이해를 얻을 수 있었다. 해당 과정에서 얻은 기술적 경험과 시사점이 향후 실제 서비스에 HTTP/3 전송 프로토콜을 적용할 때 기반 정보를 제공할 수 있음을 기대한다.
+## 개발 환경
+
+본 절에서는 QUIC 기반 LL-HLS 시스템 개발에 사용된 소프트웨어 및 하드웨어에 대해 기술한다.
+
+### 소프트웨어 명세
+
+QUIC 위의 LL-HLS 서버는 Go 언어 1.23 버전을 기반으로 개발되었으며, QUIC 프로토콜 및 HTTP/3 통신 스택은 quic-go 라이브러리 0.51.0 버전을 활용하여 구현하였다. 서비스에서 제공할 원본 미디어 컨텐츠는 FFmpeg을 사용하여 표준 LL-HLS 명세에서 요구하는 CMAF fMP4 포맷으로 인코딩 및 분할 처리하도록 설계했다. 클라이언트 측에서는 hls.js 플레이어를 사용하여 개발된 스트림의 동작을 검증하였다.
+
+### 하드웨어 명세
+
+운영 환경 서버는 AWS EC2를 사용, 개발 환경 서버는 Intel Core i5 8세대 CPU, 16GB 메모리 환경의 노트북 Lenovo Thinkpad X390에 구축하였다. 저장장치는 서비스 확장성을 고려해 운영 환경에서는 AWS S3를, 개발 환경에서는 내장 SSD를 사용했으며 운영체제는 모두 Ubuntu 24.04 LTS를 사용하였다. 네트워크 병목 현상을 최소화하고 프로토콜 자체의 성능을 보다 정확히 측정하기 위해 서버와 클라이언트 모두 1Gbps의 유선 네트워크 환경을 구축하였다.
+
+## LL-HLS 지원 서버 구현의 기술적 과제
+
+표준 LL-HLS 명세를 준수하는 오리진 서버를 구축하는 것은 표준 미디어 도구를 사용하는 것으로는 불충분하다. LL-HLS 명세는 클라이언트와의 동적 상호작용을 통해 지연 시간을 최소화하는 서버의 동작을 규정하는 반면 FFmpeg와 같은 표준 미디어 도구들은 미디어 변환, 즉 인코딩과 정적 파일 생성 등에 중점을 두기 때문이다. 즉 LL-HLS의 핵심인 동적 재생목록 업데이트(Dynamic Playlist Update), Server Push를 통한 선제적 리소스 전송 등의 기능은 FFmpeg의 지원 범위에 포함되지 않는다. 본 논문에서는 이러한 기술적 과제를 해결하기 위해 강력한 미디어 처리 도구인 FFmpeg를 기반으로 VOD 서비스의 파일을 실시간으로 분할 및 인코딩하고, Go 언어와 quic-go 라이브러리를 사용해 LL-HLS 명세의 핵심 기능들을 직접 구현한 오리진 서버를 설계하고 구축하여 LL-HLS가 목표하는 저지연 스트리밍을 달성하는 것을 목표한다.
+
+## 시스템 아키텍처
+
+본 시스템은 main 함수에서 설정 파일을 로드한 후, FFmpeg 트랜스코딩 프로세스를 비동기적으로 실행하고 HTTP 서버를 구동하는 구조로 이루어져 있다. 전체 아키텍처는 크게 미디어 처리 계층, 상태 관리 계층, HTTP 처리 계층의 세 부분으로 나뉜다.
+
+### 미디어 처리 계층
+
+미디어 처리 계층은 pkg/media에 위치하며 FFmpeg를 래핑(wrapping)하여 원본 비디오 파일을 LL-HLS 스트림으로 트랜스코딩하는 역할을 담당한다. GenerateLLHLS 함수는 서버 시작 시 또는 새로운 비디오 요청 시 호출되어, 지정된 비디오 소스를 fMP4 컨테이너 형식의 부분 세그먼트(.m4s)와 초기화 세그먼트(init.mp4)로 변환한다.
+
+### 상태 관리 계층
+
+상태 관리 계층은 pkg/hls, internal/models에 위치하며 생성된 미디어 파일들을 감시하고 스트림의 상태를 관리한다. Manager는 각 스트림의 상태(StreamState)를 관리하며 fsnotify 라이브러리를 사용해 미디어 파일 디렉터리를 감시한다. 새로운 부분 세그먼트 파일이 생성되면 이를 감지하고 해당 스트림의 StreamState를 갱신한다. StreamState에는 스트림의 미디어 시퀀스 번호, 파트 시퀀스 번호, 세그먼트와 파트 목록 등 재생목록 생성에 필요한 모든 정보를 저장한다. 또한 Go의 채널 updateChan을 이용해 상태 변경이 발생했음을 HTTP 처리 계층에 알리는 역할을 한다.
+
+### HTTP 처리 계층
+
+HTTP 처리 계층은 pkg/server, pkg/hls에 위치하며 클라이언트의 HTTP 요청을 받아 처리한다. Server는 quic-go 라이브러리를 사용하여 HTTP/3 (QUIC) 또는 HTTP/2 서버를 시작하고, chi 라우터를 이용해 /live/{streamID}/* 형태의 URL 요청을 HLS Handler로 전달한다. Handler는 실제 LL-HLS 로직이 구현된 부분으로, .m3u8 재생목록 요청과 .m4s/.mp4 미디어 파일 요청을 구분하여 처리한다. 특히 servePlaylist 함수는 상태 관리자로부터 현재 스트림 정보를 받아 동적으로 재생목록을 생성하고, LL-HLS의 블로킹 요청(Blocking Request)을 처리하는 핵심 로직을 포함한다.
+
+이처럼 각 계층이 유기적으로 연동하여 FFmpeg가 정적으로 생성한 미디어 파일들을 기반으로 동적인 LL-HLS 스트리밍 서비스를 제공한다.
+
+## LL-HLS 핵심 기능 구현
+
+본 절에서는 시스템 아키텍처의 각 컴포넌트가 어떻게 상호작용하여 LL-HLS의 핵심 기능들을 구현하는지, 그리고 이 과정에서 사용된 구체적인 명령어와 코드, 그리고 HLS 태그들을 상세히 설명한다.
+
+### 부분 세그먼트(Partial Segments)
+
+LL-HLS는 기존 세그먼트를 더 잘게 나눈 전송 단위인 파트(part)를 정의해 클라이언트의 빠른 미디어 재생 시작을 돕고 지연 시간을 줄이는 부분 세그먼트를 사용한다. 이는 세그먼트 전체가 완성되기 전에 클라이언트가 수신 즉시 재생을 시작할 수 있도록 하며, LL-HLS 명세의 EXT-X-PART-INF와 EXT-X-PART 태그를 통해 구현된다. 특히 EXT-X-PART 태그의 INDEPENDENT=YES 속성을 통해 해당 파트가 I-frame으로 시작해 독립적으로 디코딩 가능함을 명시하여 플레이어가 파트 단위로 스트림을 안정적으로 시작하고 탐색할 수 있도록 한다. I-frame은 Intra-coded frame의 준말로 이전 프레임(P-frame)이나 이후 프레임(B-frame)의 정보 없이 독립적으로 완전한 이미지 정보 하나를 모두 담고 있는 비디오 프레임을 의미한다. 한편 P-frame은 직전의 I-frame이나 P-frame과의 차이만을 담으며 B-frame은 이전 프레임과 이후 프레임을 모두 참조해 그 사이의 변화만을 기록한다. 이는 영상 속도 조절이나 되감기 등의 기능을 구현하는 데 사용된다. P-frame과 B-frame을 사용하지 않고 I-frame으로만 미디어를 구성하면 영상의 모든 부분에 대해 빠른 탐색이 가능하지만 파일 사이즈가 매우 큰 폭으로 증가하기 때문에 VOD 서비스에서는 주로 세 종류의 프레임을 모두 사용하는 GOP 구조를 사용하며 I-frame만을 일정 간격으로 배치한 낮은 화질의 재생목록을 통해 탐색 시 미리보기를 제공한다.
+
+이를 구현하기 위해 CMAF 규격을 준수하는 fMP4 컨테이너로 원본 미디어를 트랜스코딩해야 한다. 본 논문에서는 FFmpeg를 사용하며 핵심 명령어는 다음과 같다.
+
+```go
+cmd := exec.Command("ffmpeg",
+    "-re", "-i", sourceFile,
+    "-hide_banner", "-y",
+
+    // 비디오, 오디오 인코딩 옵션들 생략
+    
+    "-f", "hls",
+    "-hls_segment_type", "fmp4",
+    "-hls_segment_filename", filepath.Join(outputDir, "seg%d.m4s"),
+    "-hls_fmp4_init_filename", "init.mp4",
+    "-hls_playlist_type", "event",
+    "-hls_flags", "independent_segments",
+    "-lhls", "1",
+    "-hls_time", "0.5",
+    playlistPath,
+)
+```
+
+-f hls는 출력물을 HLS 스트리밍 형식으로 생성하도록 지정하며, -hls_time은 전체 미디어 세그먼트 목표 길이를 2초로 설정하고 EXTINF 태그 값의 기준으로 삼는다. -hls_fmp4_init_filename는 모든 세그먼트에 필요한 초기화 정보를 담는 파일(변환된_동영상_이름.mp4)을 생성하여 EXT-X-MAP 태그의 기반을 마련한다. 또한 -hls_flags independent_segments+omit_endlist를 통해 각 세그먼트가 독립적으로 디코딩 가능하도록 I-frame으로 시작하게 설정하며, -frag_duration을 0.5로 설정하여 부분 세그먼트의 크기를 0.5초 길이로 생성한다. 생성된 재생목록에는 다음과 같이 파트 정보가 포함된다.
+
+```text
+#EXTM3U
+#EXT-X-VERSION:6
+#EXT-X-TARGETDURATION:2
+#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK=1.50,CAN-SKIP-UNTIL=12.00
+#EXT-X-PART-INF:PART-TARGET=0.50000
+#EXT-X-MEDIA-SEQUENCE:0
+#EXTINF:2.000,
+#EXT-X-PART:DURATION=0.500,URI="1080p/seg0.m4s",INDEPENDENT=YES
+#EXT-X-PART:DURATION=0.500,URI="1080p/seg1.m4s"
+#EXT-X-PART:DURATION=0.500,URI="1080p/seg2.m4s"
+```
+
+### Delta Update & Blocking 
+
+Delta Update는 클라이언트가 전체 미디어 플레이리스트를 매번 다시 다운로드하는 대신 마지막으로 수신한 버전 이후의 변경사항만 요청하고 서버는 해당 부분만 응답하여 업데이터 지연과 서버 부하를 줄이는 LL-HLS 기능이다. 클라이언트는 쿼리 파라미터에 _HLS_msn과 _HLS_part를 작성하여 자신이 가진 미디어의 버전을 알리고 서버는 변경분(Delta)만 응답한다. 요청한 정보가 아직 없다면 서버는 응답을 잠시 보류(Blocking Request)하고 해당 정보가 생성되는 즉시 응답을 재개하여 불필요한 반복 요청을 줄여 지연 시간 단축에 직접적으로 기여하며 특히 저품질 네트워크 환경의 클라이언트 부담을 줄인다. Blocking Request는 EXT-X-SERVER-CONTROL 태그의 CAN-BLOCK-RELOAD=YES 속성 및 EXT-X-SKIP 태그를 통해 작동한다.
+
+본 논문에서는 해당 기능을 Go 언어의 동시성 기능을 활용해 효율적으로 구현한다. 다음은 Blocking Request를 처리하는 요청 핸들러의 핵심 로직을 나타낸 의사 코드이다.
+
+```go
+func (h *Handler) servePlaylist(w http.ResponseWriter, r *http.Request, streamID, rendition string) {
+	streamState := h.manager.GetOrCreateStream(streamID, rendition)
+	playlistData := streamState.Playlist()
+
+	// 1. 쿼리 파라미터에서 클라이언트의 미디어 버전 파싱
+	clientMSNStr := r.URL.Query().Get("_HLS_msn")
+	clientPartStr := r.URL.Query().Get("_HLS_part")
+
+	if clientMSNStr != "" && clientPartStr != "" {
+		// 클라이언트 버전 파싱 로직 생략
+
+		// 2. 클라이언트가 최신 버전을 가지고 있는지 확인
+		isClientUpToDate := false
+		if errMSN == nil && errPart == nil && playlistData.LastPart != nil {
+			// 최신 버전 확인 로직 생략
+			isClientUpToDate = true
+		}
+
+		// 3. 최신 버전이면 Blocking Request 처리
+		if isClientUpToDate {
+            // 상태 변경 알림 채널 구독
+			updateChan := streamState.SubscribeToUpdates()
+			ctx := r.Context()
+			select {
+            //새로운 파트 생성 신호 수신 및 대기 종료
+			case <-updateChan: 
+            // 타임아웃 및 대기 종료
+			case <-time.After(5 * time.Second):
+            // 클라이언트 연결 종료
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+	// 4. 최신 재생목록 생성 및 전송
+	playlist, err := h.generatePlaylist(r, &playlistData)
+	w.Write([]byte(playlist))
+}
+```
+
+해당 과정에서 클라이언트의 요청은 HTTP/3 요청 핸들러의 PlaylistHandler 함수에서 처리되며 이는 세션 관리자를 통해 현재 미디어 상태를 확인하고 재생목록 생성기 로직을 수행하는 함수 GenerateDeltaPlaylist를 호출한다. 이 때 응답을 즉시 보낼 수 없는 경우 Go 채널인 updateChan을 통해 파일 시스템 관리자로부터의 업데이트 신호를 비동기적으로 기다린다. 이러한 Go의 동시성 기능을 활용한 구현은 불필요한 반복 요청(Polling)을 제거하고 여러 클라이언트의 요청을 적은 리소스로 효율적으로 처리할 수 있게 한다. 이는 추후 서비스 확장 시, AWS S3 등의 외부 저장소를 사용하게 될 것으로 파일 시스템 관리자를 다른 마이크로서비스의 업데이트 알림으로 대체할 예정이다.     
+
+### 선제적 로딩(Preload Hint & Server Push)
+
+Preload Hint는 클라이언트의 다음 요청을 예측하고 해당 리소스를 HTTP/2 등에서 지원하는 Server Push 기능을 사용해 선제적으로 전송해 요청-응답에 필요한 왕복 시간을 제거하는 것을 목표하는 기능이다. 클라이언트의 다음 요청을 유도하는 HINT의 경우 1-RTT를 절약하는 반면 Server Push는 이미 사용 중인 스트림으로 이를 전송한다. LL-HLS 명세에서는 EXT-X-PRELOAD-HINT 태그로 다음에 필요할 리소스를 클라이언트에게 암시한다.
+
+```go
+// pkg/hls/handler.go의 generatePlaylist 함수 내부
+// Preload Hint - Server Push
+if playlistData.LastPart != nil {
+    // 다음 파트의 URI를 예측하는 로직 생략
+    // e.g. nextPartURI := "1080p/seg_001.mp4.part3.m4s"
+
+    fmt.Fprintf(&sb, "#EXT-X-PRELOAD-HINT:TYPE=PART,URI=\"%s\"\n", nextPartURI)
+
+    // Server Push 시도
+    if pusher, ok := r.Context().Value(http.ServerContextKey).(http.Pusher); ok {
+        err := pusher.Push(nextPartURI, nil)
+        if err != nil {
+            log.Printf("Failed to push %s: %v", nextPartURI, err)
+        }
+    }
+}
+```
+
+generatePlaylist 함수는 재생목록을 생성할 때 마지막으로 추가된 파트 정보를 기반으로 다음 파트의 URI를 예측한다. 예측된 URI는 #EXT-X-PRELOAD-HINT 태그에 포함되어 클라이언트에게 전달된다. 동시에, 현재 연결이 HTTP/2 또는 HTTP/3를 사용하고 서버 푸시를 지원하는 경우(http.Pusher 인터페이스 확인), 예측된 리소스를 서버 푸시를 통해 클라이언트에게 선제적으로 전송하여 요청-응답 왕복 시간(RTT)을 제거하고 지연 시간을 추가로 단축한다.
+
+### 상태 보고(Rendition Report)와 적응형 스트리밍(ABR)
+
+LL-HLS는 다양한 네트워크 환경의 클라이언트를 고려해 적응형 스트리밍 기반을 마련하여 부드러운 화질 전환을 지원하는 것을 목표로 한다. 이는 마스터 재생목록의 EXT-X-STREAM-INF 태그와 미디어 재생목록의 EXT-X-RENDITION-REPORT 태그를 통해 구현된다. ABR의 기본 원리는 동일한 컨텐츠를 여러 품질(화질, 비트레이트)의 스트림, 즉 렌디션(Rendition)으로 제공하는 것이다. 클라이언트 플레이어 hls.js는 자체적으로 자신의 네트워크 대역폭과 버퍼 상태를 지속적으로 측정하여 현재 상황에 가장 적합한 렌디션을 선택해 서버에 요청한다. 본 논문의 서버에서는 이 렌디션들의 목록을 마스터 재생목록에 포함시켜 클라이언트에게 제공한다. EXT-X-STREAM-INF 태그는 각 렌디션의 최대 대역폭(Bandwidth), 해상도(Resolution), 사용된 코덱 등의 정보를 담아 플레이어가 가장 적합한 환경에서 컨텐츠를 시청할 수 있도록 돕는다.
+
+전통적인 HLS 환경에서는 세그먼트의 길이가 수 초에 달해 플레이어가 다른 렌디션으로 전환할 때 해당 세그먼트가 서버에 존재할 확률이 높았다. 하지만 파트 단위로 정보가 빠르게 갱신되는 LL-HLS 환경에서는 시청하던 환경의 스트림의 최신 파트 번호가 다른 스트림에서도 동일하게 사용 가능하다는 보장이 없다. 이는 각 렌디션의 인코딩 속도가 달라 파트 번호 동기화가 어긋날 수 있기 때문이다. 이러한 문제를 해결하기 위해 EXT-X-RENDITION-REPORT 태그에 특정 미디어 재생목록 안에 다른 렌디션의 가장 최신 미디어 시퀀스 번호(LAST-MSN 속성 사용)와 파트 번호(LAST-PART 속성 사용) 정보를 담게 한다. 따라서 클라이언트 플레이어는 현재 재생 중인 스트림의 재생목록만으로 다른 스트림들의 생성 현황을 알 수 있게 되어 전환하려는 렌디션에 반드시 존재하는 파트를 정확히 알고 요청할 수 있어 지연이나 오류 없이 부드러운 품질 전환을 수행할 수 있다. 이를 위해 마스터 재생목록 생성 로직을 분리해서 구현해야 한다.
+
+```text
+#EXTM3U
+#EXT-X-VERSION:6
+
+# 1080p 렌디션 정보
+#EXT-X-STREAM-INF:BANDWIDTH=5000000,AVERAGE-BANDWIDTH=4500000,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2"
+1080p/playlist.m3u8
+
+# 720p 렌디션 정보
+#EXT-X-STREAM-INF:BANDWIDTH=2800000,AVERAGE-BANDWIDTH=2500000,RESOLUTION=1280x720,CODECS="avc1.64001f,mp4a.40.2"
+720p/playlist.m3u8
+...
+```
+
+한편, 재생목록 생성기가 특정 렌디션의 미디어 재생목록을 생성할 때 다른 모든 렌디션의 최신 상태를 세션 관리자에 쿼리하여 EXT-X-RENDITION-REPORT 태그들을 삽입하도록 해야 한다. 다음 예시는 720p가 아닌 스트림을 제공하는 도중 720p 스트림 파트 생성 현황을 클라이언트에게 알린다.
+
+```text
+...
+# e.g. 720p 렌디션의 최신 상태 보고
+#EXT-X-RENDITION-REPORT:URI="../720p/playlist.m3u8",LAST-MSN=100,LAST-PART=2
+```
+
+ABR 및 Rendition Report 기능은 세션 관리자의 중앙 상태 관리와 재생목록 생성기의 동적 생성 로직 간의 협력을 통해 구현된다. 클라이언트가 마스터 재생목록을 요청하면 HTTP/3 요청 핸들러는 이를 재생목록 생성기에 위임하고 생성기는 서버가 지원하는 렌디션 목록을 기반으로 EXT-X-STREAM-INF 태그들을 포함한 마스터 재생목록들을 생성해 응답한다. 이후 클라이언트가 특정 렌디션의 미디어 재생목록을 요청하면 재생목록 생성기는 세션 관리자에게 해당 VOD 세션의 모든 렌디션에 대한 최신 LAST-MSN 속성과 LAST-PART 속성 정보를 요청한다. 이 때 세션 관리자는 각 렌디션 별로 진행 중인 인코딩 상태를 추적하고 있으므로 해당 요청에 대한 정확한 상태 정보를 즉시 반환할 수 있다. 재생목록 생성기는 이 정보를 받아 스트리밍 중인 스트림의 파트 목록과 함께 다른 렌디션들에 대한 EXT-X-RENDITION-REPORT 태그들을 조합해 최종 재생목록을 완성하고 클라이언트에게 전송한다. 본 논문에서는 이러한 아키텍처를 통해 각 렌디션 상태를 Manager, ABRStream 모델, Handler 간 유기적 협력을 통해 관리하여 LL-HLS 환경에서 발생할 수 있는 동기화 문제를 해결하고 안정적이고 부드러운 적응형 스트리밍 경험을 제공한다.
+
+# 결론
+
+본 논문은 VOD 서비스의 사용자 경험 향상을 위해 기존 HTTP 기반 스트리밍 기술의 전송 계층 측면의 한계를 극복하고자 차세대 전송 프로토콜인 QUIC(over HTTP/3)을 저지연 스트리밍 기술인 LL-HLS와 결합한 VOD 서비스 전용 서버 시스템을 구현했다. 이는 아직 프로덕션 환경에서 널리 활용되지 않는 HTTP/3 전송 프로토콜 위에서 복잡성을 가지는 LL-HLS의 동작을 구현 및 연동함으로써 기술적 타당성을 보여준다는 의미가 있다. 구현 과정에서 LL-HLS 관련 오픈소스의 부재 등의 기술적 도전 과제에 직면했으며 이를 해결하여 Smart Origin Server 구성에 대한 실질적인 이해를 얻을 수 있었다. 해당 과정에서 얻은 기술적 경험과 시사점이 향후 실제 서비스에 HTTP/3 전송 프로토콜을 적용할 때 기반 정보를 제공할 수 있음을 기대한다. 또한 본 연구를 기반으로 다음과 같은 후속 연구를 제안한다. 첫째로, 본 논문에서 다루지 않은 실시간 스트리밍 환경으로 시스템을 확장하는 것이다. VOD와 달리 예측 불가능한 라이브 콘텐츠를 QUIC과 LL-HLS로 안정적으로 전송하는 데 발생하는 추가적인 기술적 과제를 해결하고 그 효용성을 검증하는 과정이 필요하다. 둘째로, 정량적인 성능 평가 고도화가 필요하다. 다양한 네트워크 시뮬레이션을 통해 패킷 손실률, RTT(Round-Trip Time) 변화 등 열악한 환경에서 기존의 HTTP/1.1 및 HTTP/2 기반 HLS/DASH 시스템 대비 지연 시간, 끊김 현상(Rebuffering), 리소스 사용률 측면에서 얼마나 우위를 갖는지 구체적인 수치 증명이 필요하다.
 
 ---
-[^1]: Scalable Multi-Source Video Streaming Application over Peer-to-Peer Networks
-[^2]: 저지연 라이브 HTTP 스트리밍을 위한 전송률 적응 기법
-[^3]: Performance Comparison of HTTP/3 and HTTP/2: Proxy vs. Non-Proxy Environments
-[^4]: Improving the Quality of Experience of Video Streaming Through a Buffer-Based Adaptive Bitrate Algorithm and Gated Recurrent Unit-Based Network Bandwidth Prediction
-[^5]: From Version 1.0 to Version 2.0: A Brief History of the Web
 
-[^6]: Schulzrinne, H., Rao, A., and Lanphier, R. "Real Time Streaming Protocol"
-[^7]: HLS(HTTP Live Streaming)에서 조건부 대체 알고리즘 적용을 위한 고찰
-[^8]: Enhancing Adaptive Video Streaming through Fuzzy Logic-Based Content Recommendation Systems: A Comprehensive Review and Future Directions
-[^9]: RFC 8216
-[^10]: 적응 버퍼링 성능분석 기반의 스마트 OTT 플랫폼 설계
-
-[^11]: Measuring HTTP3 Adoption and Performance
+[^1]: Woo, J., Hong, S., Kang, D., & An, D. (2024). Improving the Quality of Experience of Video Streaming Through a Buffer-Based Adaptive Bitrate Algorithm and Gated Recurrent Unit-Based Network Bandwidth Prediction. Applied Sciences, 14(22), 10490.
+[^2]: Gañán, C. H. (2009). Scalable Multi-Source Video Streaming Application over Peer-to-Peer Networks. Master's thesis, Polytechnical University of Catalonia.
+[^3]: Vossen, G., & Hagemann, S. (2007). From Version 1.0 to Version 2.0: A brief history of the web. (ERCIS Working Paper, No. 4). European Research Center for Information Systems (ERCIS), University of Münster.
+[^4]: 박지우, & 정광수. (2017). 저지연 라이브 HTTP 스트리밍을 위한 전송률 적응 기법. 2017년 한국컴퓨터종합학술대회 논문집, 1187-1189.
+[^5]: Schulzrinne, H., Rao, A., & Lanphier, R. (1998). Real Time Streaming Protocol (RTSP). RFC 2326, Standards Track.
+[^6]: Pantos, R. (Ed.), & May, W. (2017). HTTP Live Streaming. RFC 8216, Informational.
+[^7]: 김인기, & 강민구. (2016). 적응 버퍼링 성능분석 기반의 스마트 OTT 플랫폼 설계. Journal of Internet Computing and Services (JICS), 17(4), 19-26.
+[^8]: 심재훈, 김하영, 박노현, 박예빈, Enenche, P., 신광무, 김성훈, & 유동호. (2022). HLS(HTTP Live Streaming)에서 조건부 대체 알고리즘 적용을 위한 고찰. 2022년 한국정보기술학회 하계종합학술대회 논문집.
+[^9]: Trevisan, M., Giordano, D., Drago, I., & Khatouni, A. S. (2021). Measuring HTTP/3: Adoption and Performance. 19th Mediterranean Communication and Computer Networking Conference (MedComNet).
+[^10]: Liu, F., Dehart, J., Parwatikar, J., Farkiani, B., & Crowley, P. (2024). Performance Comparison of HTTP/3 and HTTP/2: Proxy vs. Non-Proxy Environments. arXiv preprint arXiv:2409.16267.
+[^11]: Khan, K. (2023). Enhancing Adaptive Video Streaming through Fuzzy Logic-Based Content Recommendation Systems: A Comprehensive Review and Future Directions.
